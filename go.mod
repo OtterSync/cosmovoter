@@ -1,4 +1,4 @@
-module github.com/OtterSync/cosmovisor
+module github.com/OtterSync/cosmovoter
 
 go 1.16
 
