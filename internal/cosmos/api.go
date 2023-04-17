@@ -12,6 +12,12 @@ const (
 	BaseAPIUrlFormat = "https://cosmos.directory/%s"
 )
 
+type ChainInfo struct {
+	ChainID    string `json:"chain_id"`
+	RPCNode    string `json:"rpc_node"`
+	Executable string `json:"executable"`
+}
+
 func GetChainInfo(chain string) (ChainInfo, error) {
 	var chainInfo ChainInfo
 	url := fmt.Sprintf(BaseAPIUrlFormat, chain)
