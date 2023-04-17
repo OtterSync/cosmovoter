@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/OtterSync/cosmovisor/internal/cosmos"
-	"github.com/OtterSync/cosmovisor/internal/crypto"
+	"github.com/OtterSync/cosmovoter/internal/cosmos"
+	"github.com/OtterSync/cosmovoter/internal/crypto"
 )
 
 const configFile = "config.json"
