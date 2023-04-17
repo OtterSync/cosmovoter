@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"golang.org/x/crypto/scrypt"
 )
 
 // GenerateSalt generates a new 16-byte random salt.

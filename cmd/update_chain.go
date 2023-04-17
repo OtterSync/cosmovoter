@@ -2,68 +2,128 @@ package cmd
 
 import (
 	"bufio"
-	"encoding/hex"
+	"errors"
 	"fmt"
-	"github.com/OtterSync/cosmovoter/config"
-	"github.com/OtterSync/cosmovoter/crypto"
-	"github.com/spf13/cobra"
 	"os"
+	"strconv"
 	"strings"
+
+	"github.com/OtterSync/cosmovoter/config"
+	"github.com/spf13/cobra"
 )
 
-var updateChainCmd = &cobra.Command{
-	Use:   "update-chain",
-	Short: "Update an existing chain configuration in the configuration file",
-	Run: func(cmd *cobra.Command, args []string) {
-		chainName, _ := cmd.Flags().GetString("chain-name")
-		executable, _ := cmd.Flags().GetString("executable")
-		walletName, _ := cmd.Flags().GetString("wallet-name")
-		gasPrice, _ := cmd.Flags().GetString("gas-price")
-		chainID, _ := cmd.Flags().GetString("chain-id")
-		rpcNode, _ := cmd.Flags().GetString("rpc-node")
+var addChainCmd = &cobra.Command{
+	Use:   "add-chain",
+	Short: "Add a new chain to the configuration",
+	Long: `Add a new chain to the configuration file, including the chain name, executable, chain ID,
+RPC node, wallet name, and gas price. The wallet password will be prompted for securely.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		reader := bufio.NewReader(os.Stdin)
 
-		if chainName == "" {
-			fmt.Println("Error: The chain-name flag is required.")
-			return
-		}
-
-		var encryptedPassword []byte
-		var salt []byte
-
-		if walletName != "" {
-			reader := bufio.NewReader(os.Stdin)
-			fmt.Print("Enter new wallet password: ")
-			password, _ := reader.ReadString('\n')
-			password = strings.TrimSpace(password)
-
-			// Generate encryption key and salt
-			salt, _ = crypto.GenerateSalt()
-			key, _ := crypto.GenerateKey([]byte(password), salt, 32)
-
-			// Encrypt the wallet password
-			encryptedPassword, err = crypto.Encrypt([]byte(password), key)
-			if err != nil {
-				fmt.Printf("Error: %v\n", err)
-				return
-			}
-		}
-
-		// Update the chain configuration
-		err := config.UpdateChain(chainName, executable, walletName, gasPrice, chainID, rpcNode, encryptedPassword, salt)
+		// Prompt the user for the chain configuration details
+		fmt.Print("Enter chain name: ")
+		chainName, _ := reader.ReadString('\n')
+		fmt.Print("Enter chain executable path: ")
+		executablePath, _ := reader.ReadString('\n')
+		fmt.Print("Enter chain ID: ")
+		chainID, _ := reader.ReadString('\n')
+		fmt.Print("Enter chain RPC node: ")
+		rpcNode, _ := reader.ReadString('\n')
+		fmt.Print("Enter wallet name: ")
+		walletName, _ := reader.ReadString('\n')
+		fmt.Print("Enter wallet password: ")
+		walletPassword, _ := reader.ReadString('\n')
+		fmt.Print("Enter gas price: ")
+		var gasPrice uint64
+		_, err := fmt.Scanln(&gasPrice)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-		} else {
-			fmt.Println("Chain updated successfully.")
+			return fmt.Errorf("failed to read gas price: %w", err)
 		}
+
+		// Create the new chain configuration
+		chainConfig, err := ChainConfigFromFields(
+			strings.TrimSpace(chainName),
+			strings.TrimSpace(executablePath),
+			strings.TrimSpace(chainID),
+			strings.TrimSpace(rpcNode),
+			strings.TrimSpace(walletName),
+			strings.TrimSpace(walletPassword),
+			gasPrice,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Load the existing config
+		existingConfig, err := config.LoadConfig()
+		if err != nil {
+			return err
+		}
+
+		// Add the new chain configuration
+		existingConfig.Chains = append(existingConfig.Chains, *chainConfig)
+
+		// Save the updated config
+		err = existingConfig.SaveConfig()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Chain %s added to config file\n", chainConfig.Name)
+		return nil
 	},
 }
 
-func init() {
-	updateChainCmd.Flags().StringP("chain-name", "n", "", "Name of the chain to update (required)")
-	updateChainCmd.Flags().StringP("executable", "e", "", "Chain executable program")
-	updateChainCmd.Flags().StringP("wallet-name", "w", "", "Name of the wallet (optional)")
-	updateChainCmd.Flags().StringP("gas-price", "g", "", "Gas price (optional)")
-	updateChainCmd.Flags().StringP("chain-id", "i", "", "Chain ID")
-	updateChainCmd.Flags().StringP("rpc-node", "r", "", "RPC node")
-	rootCmd.AddCommand(updateChainCmd)
+func ChainConfigFromFields(name, executable, chainID, rpcNode, walletName, walletPassword string, gasPrice uint64) (*config.ChainConfig, error) {
+	// Encrypt the wallet password
+	walletPwdHash, err := config.EncryptPassword(strings.TrimSpace(walletPassword))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt wallet password: %w", err)
+	}
+
+	// Create the new chain configuration
+	chainConfig := &config.ChainConfig{
+		Name:          strings.TrimSpace(name),
+		Executable:    strings.TrimSpace(executable),
+		ChainID:       strings.TrimSpace(chainID),
+		RPCNode:       strings.TrimSpace(rpcNode),
+		WalletName:    strings.TrimSpace(walletName),
+		WalletPwdHash: walletPwdHash,
+		GasPrice:      gasPrice,
+	}
+
+	return chainConfig, nil
 }
+
+func (c *ChainConfig) Save() error {
+	// Load the existing config
+	existingConfig, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+
+	// Find the index of the chain in the existing config
+	var index int = -1
+	for i, chain := range existingConfig.Chains {
+		if chain.Name == c.Name {
+			index = i
+			break
+		}
+	}
+
+	// Add or update the chain in the existing config
+	if index >= 0 {
+		existingConfig.Chains[index] = *c
+	} else {
+		existingConfig.Chains = append(existingConfig.Chains, *c)
+	}
+
+	// Save the updated config
+	err = existingConfig.SaveConfig()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
