@@ -5,52 +5,54 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strings"
 )
 
-func FetchProposals(chainConfig ChainConfig) ([]Proposal, error) {
-	url := fmt.Sprintf("https://cosmos.directory/%s/proposals", chainConfig.ChainID)
+const (
+	BaseAPIUrlFormat = "https://cosmos.directory/%s"
+)
+
+func GetChainInfo(chain string) (ChainInfo, error) {
+	var chainInfo ChainInfo
+	url := fmt.Sprintf(BaseAPIUrlFormat, chain)
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, err
+		return chainInfo, err
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	if resp.StatusCode != http.StatusOK {
+		return chainInfo, fmt.Errorf("error fetching chain info: status code %d", resp.StatusCode)
 	}
-
-	var proposals []Proposal
-	if err := json.Unmarshal(body, &proposals); err != nil {
-		return nil, err
-	}
-
-	return proposals, nil
-}
-
-func CheckWalletVote(chainConfig ChainConfig, walletAddress string, proposalID string) (Vote, error) {
-	url := fmt.Sprintf("https://cosmos.directory/%s/proposals/%s/votes/%s", chainConfig.ChainID, proposalID, walletAddress)
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return Vote{}, err
-	}
-	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return Vote{}, err
+		return chainInfo, err
 	}
 
-	var vote Vote
-	if err := json.Unmarshal(body, &vote); err != nil {
-		return Vote{}, err
+	err = json.Unmarshal(body, &chainInfo)
+	if err != nil {
+		return chainInfo, err
 	}
 
-	return vote, nil
+	return chainInfo, nil
 }
 
-func SubmitVote(chainConfig ChainConfig, walletAddress string, proposalID string, voteOption string) error {
-	// Implement the function to submit a vote using the wallet address, proposal ID, and vote option
+func GetOpenProposals(rpcNode string) ([]Proposal, error) {
+	// Fetch open proposals using the Cosmos SDK API
+	// Implement this function based on the specific API version and requirements
+	return []Proposal{}, nil
+}
+
+func HasVoted(rpcNode, walletName string, proposalID int) (bool, error) {
+	// Check if the wallet has voted on the proposal using the Cosmos SDK API
+	// Implement this function based on the specific API version and requirements
+	return false, nil
+}
+
+func SubmitVote(rpcNode, walletName, password string, proposalID int, voteOption, gasPrices string) (string, error) {
+	// Submit the vote using the Cosmos SDK API
+	// Implement this function based on the specific API version and requirements
+	return "", nil
 }
