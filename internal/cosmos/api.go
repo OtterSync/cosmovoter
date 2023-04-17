@@ -8,9 +8,10 @@ import (
 	"net/http"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/client"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
-	rpcclient "github.com/tendermint/tendermint/rpc/client/http"
+	"github.com/cosmos/cosmos-sdk/x/gov/client/cli"
+	"github.com/cosmos/cosmos-sdk/client/rpc"
 )
 
 const (
@@ -51,33 +52,37 @@ func GetChainInfo(chain, rpcNode string) (ChainInfo, error) {
 }
 
 func GetOpenProposals(rpcNode string) ([]types.Proposal, error) {
-	client, err := rpcclient.New(rpcNode, "/websocket")
+	client, err := rpc.New(rpcNode, "/websocket")
 	if err != nil {
 		return nil, err
 	}
 
-	proposals, err := client.GovProposals(context.Background(), &types.QueryProposalsRequest{
-		ProposalStatus: types.StatusVotingPeriod,
-	})
-
+	res, _, err := client.QueryWithData(context.Background(), "/custom/gov/proposals", query.NewPageRequest())
 	if err != nil {
 		return nil, err
 	}
 
-	return proposals.Proposals, nil
+	var proposalsResponse types.QueryProposalsResponse
+	if err := client.Codec.UnmarshalJSON(res, &proposalsResponse); err != nil {
+		return nil, err
+	}
+
+	return proposalsResponse.GetProposals(), nil
 }
 
 func HasVoted(rpcNode, walletName string, proposalID uint64) (bool, error) {
-	client, err := rpcclient.New(rpcNode, "/websocket")
+	client, err := rpc.New(rpcNode, "/websocket")
 	if err != nil {
 		return false, err
 	}
 
-	_, err = client.GovVote(context.Background(), &types.QueryVoteRequest{
-		ProposalId: proposalID,
-		Voter:      walletName,
-	})
+	params := types.NewQueryVoteRequest(walletName, proposalID)
+	req, err := client.Codec.MarshalJSON(params)
+	if err != nil {
+		return false, err
+	}
 
+	_, _, err = client.QueryWithData(context.Background(), "/custom/gov/vote", req)
 	if err != nil {
 		if err.Error() == "rpc error: code = NotFound desc = vote not found" {
 			return false, nil
@@ -87,9 +92,8 @@ func HasVoted(rpcNode, walletName string, proposalID uint64) (bool, error) {
 
 	return true, nil
 }
-
 func SubmitVote(rpcNode, walletName, password string, proposalID uint64, voteOption, gasPrices string) (string, error) {
-	client, err := rpcclient.New(rpcNode, "/websocket")
+	client, err := rpc.New(rpcNode, "/websocket")
 	if err != nil {
 		return "", err
 	}
@@ -100,16 +104,16 @@ func SubmitVote(rpcNode, walletName, password string, proposalID uint64, voteOpt
 	}
 
 	msg := types.NewMsgVote(walletName, proposalID, voteOptionParsed)
-	txBuilder, err := client.BuildTx(context.Background(), walletName, password, []sdk.Msg{msg}, gasPrices)
+	tx, err := cli.BuildUnsignedTx(msg, walletName, password, gasPrices)
 	if err != nil {
 		return "", err
 	}
 
-	res, err := client.BroadcastTx(context.Background(), txBuilder)
+	res, err := client.BroadcastTxCommit(context.Background(), tx)
 	if err != nil {
 		return "", err
 	}
 
-	return res.TxHash, nil
+	return res.Hash.String(), nil
 }
 
