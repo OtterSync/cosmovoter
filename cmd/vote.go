@@ -1,71 +1,73 @@
 package cmd
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
+	"log"
 	"os"
-	"strconv"
-	"strings"
 
-	"github.com/OtterSync/cosmovisor/internal/cosmos"
-	"github.com/OtterSync/cosmovisor/internal/crypto"
+	"github.com/OtterSync/cosmovoter/internal/config"
+	"github.com/OtterSync/cosmovoter/internal/cosmos"
+	"github.com/OtterSync/cosmovoter/internal/crypto"
 )
 
-func Vote() {
-	configs, err := LoadConfig()
+func Vote(chain string) {
+	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Printf("Error loading config: %v\n", err)
-		os.Exit(1)
+		log.Fatal("Error loading config:", err)
 	}
 
-	reader := bufio.NewReader(os.Stdin)
+	if chain != "" {
+		voteOnChain(cfg, chain)
+	} else {
+		for _, chain := range cfg.Chains {
+			voteOnChain(cfg, chain.Name)
+		}
+	}
+}
 
-	for _, config := range configs {
-		proposals, err := cosmos.GetOpenProposals(config.RPCNode)
+func voteOnChain(cfg *config.Config, chainName string) {
+	chainCfg, err := cfg.GetChain(chainName)
+	if err != nil {
+		fmt.Printf("Error getting chain '%s': %v\n", chainName, err)
+		return
+	}
+
+	chainInfo, err := cosmos.GetChainInfo(chainName, chainCfg.RPCNode)
+	if err != nil {
+		fmt.Printf("Error fetching chain info for '%s': %v\n", chainName, err)
+		return
+	}
+
+	proposals, err := cosmos.GetOpenProposals(chainInfo.RPCNode)
+	if err != nil {
+		fmt.Printf("Error getting open proposals for '%s': %v\n", chainName, err)
+		return
+	}
+
+	for _, proposal := range proposals {
+		voted, err := cosmos.HasVoted(chainInfo.RPCNode, chainCfg.WalletName, proposal.ProposalId)
 		if err != nil {
-			fmt.Printf("Error getting open proposals for chain %s: %v\n", config.ChainName, err)
+			fmt.Printf("Error checking if wallet has voted on proposal %d for '%s': %v\n", proposal.ProposalId, chainName, err)
 			continue
 		}
 
-		for _, proposal := range proposals {
-			voted, err := cosmos.HasVoted(config.RPCNode, config.WalletName, proposal.ID)
+		if !voted {
+			fmt.Printf("Proposal %d on chain '%s':\n", proposal.ProposalId, chainName)
+			fmt.Println(proposal.Content.GetDescription())
+			voteOption := getVoteOption()
+			walletPassword, err := crypto.Decrypt(chainCfg.WalletPassword, cfg.PasswordSalt)
 			if err != nil {
-				fmt.Printf("Error checking vote status for proposal %d on chain %s: %v\n", proposal.ID, config.ChainName, err)
+				fmt.Printf("Error decrypting wallet password for '%s': %v\n", chainName, err)
 				continue
 			}
 
-			if !voted {
-				fmt.Printf("Proposal %d on chain %s:\n", proposal.ID, config.ChainName)
-				fmt.Printf("Title: %s\n", proposal.Title)
-				fmt.Printf("Description: %s\n", proposal.Description)
-
-				var voteOption int
-				for {
-					fmt.Print("Enter your vote (1 - Yes, 2 - No, 3 - NoWithVeto, 4 - Abstain): ")
-					voteOptionStr, _ := reader.ReadString('\n')
-					voteOption, err = strconv.Atoi(strings.TrimSpace(voteOptionStr))
-					if err == nil && voteOption >= 1 && voteOption <= 4 {
-						break
-					}
-					fmt.Println("Invalid option. Please enter a valid vote option.")
-				}
-
-				voteOptionText := cosmos.VoteOptionText(voteOption)
-				password, err := crypto.DecryptWithPassword(config.Password, config.Password, config.Salt)
-				if err != nil {
-					fmt.Printf("Error decrypting wallet password for chain %s: %v\n", config.ChainName, err)
-					continue
-				}
-
-				txHash, err := cosmos.SubmitVote(config.RPCNode, config.WalletName, password, proposal.ID, voteOptionText, config.GasPrices)
-				if err != nil {
-					fmt.Printf("Error submitting vote for proposal %d on chain %s: %v\n", proposal.ID, config.ChainName, err)
-					continue
-				}
-
-				fmt.Printf("Successfully submitted vote for proposal %d on chain %s. Transaction hash: %s\n", proposal.ID, config.ChainName, txHash)
+			txHash, err := cosmos.SubmitVote(chainInfo.RPCNode, chainCfg.WalletName, walletPassword, proposal.ProposalId, voteOption, chainCfg.GasPrices)
+			if err != nil {
+				fmt.Printf("Error submitting vote on proposal %d for '%s': %v\n", proposal.ProposalId, chainName, err)
+				continue
 			}
+
+			fmt.Printf("Successfully submitted vote on proposal %d for '%s'. Tx hash: %s\n", proposal.ProposalId, chainName, txHash)
 		}
 	}
 }

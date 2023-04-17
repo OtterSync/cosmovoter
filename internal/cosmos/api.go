@@ -19,10 +19,10 @@ const (
 
 type ChainInfo struct {
 	ChainID string `json:"chain_id"`
-	RPCNode string `json:"rpc_node"`
+	RPCNode string
 }
 
-func GetChainInfo(chain string) (ChainInfo, error) {
+func GetChainInfo(chain, rpcNode string) (ChainInfo, error) {
 	var chainInfo ChainInfo
 	url := fmt.Sprintf(BaseAPIUrlFormat, chain)
 
@@ -46,6 +46,7 @@ func GetChainInfo(chain string) (ChainInfo, error) {
 		return chainInfo, err
 	}
 
+	chainInfo.RPCNode = rpcNode
 	return chainInfo, nil
 }
 
@@ -111,3 +112,4 @@ func SubmitVote(rpcNode, walletName, password string, proposalID uint64, voteOpt
 
 	return res.TxHash, nil
 }
+
