@@ -1,11 +1,16 @@
 package cosmos
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"strings"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/auth/client"
+	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	rpcclient "github.com/tendermint/tendermint/rpc/client/http"
 )
 
 const (
@@ -13,9 +18,8 @@ const (
 )
 
 type ChainInfo struct {
-	ChainID    string `json:"chain_id"`
-	RPCNode    string `json:"rpc_node"`
-	Executable string `json:"executable"`
+	ChainID string `json:"chain_id"`
+	RPCNode string `json:"rpc_node"`
 }
 
 func GetChainInfo(chain string) (ChainInfo, error) {
@@ -45,20 +49,65 @@ func GetChainInfo(chain string) (ChainInfo, error) {
 	return chainInfo, nil
 }
 
-func GetOpenProposals(rpcNode string) ([]Proposal, error) {
-	// Fetch open proposals using the Cosmos SDK API
-	// Implement this function based on the specific API version and requirements
-	return []Proposal{}, nil
+func GetOpenProposals(rpcNode string) ([]types.Proposal, error) {
+	client, err := rpcclient.New(rpcNode, "/websocket")
+	if err != nil {
+		return nil, err
+	}
+
+	proposals, err := client.GovProposals(context.Background(), &types.QueryProposalsRequest{
+		ProposalStatus: types.StatusVotingPeriod,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return proposals.Proposals, nil
 }
 
-func HasVoted(rpcNode, walletName string, proposalID int) (bool, error) {
-	// Check if the wallet has voted on the proposal using the Cosmos SDK API
-	// Implement this function based on the specific API version and requirements
-	return false, nil
+func HasVoted(rpcNode, walletName string, proposalID uint64) (bool, error) {
+	client, err := rpcclient.New(rpcNode, "/websocket")
+	if err != nil {
+		return false, err
+	}
+
+	_, err = client.GovVote(context.Background(), &types.QueryVoteRequest{
+		ProposalId: proposalID,
+		Voter:      walletName,
+	})
+
+	if err != nil {
+		if err.Error() == "rpc error: code = NotFound desc = vote not found" {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
 }
 
-func SubmitVote(rpcNode, walletName, password string, proposalID int, voteOption, gasPrices string) (string, error) {
-	// Submit the vote using the Cosmos SDK API
-	// Implement this function based on the specific API version and requirements
-	return "", nil
+func SubmitVote(rpcNode, walletName, password string, proposalID uint64, voteOption, gasPrices string) (string, error) {
+	client, err := rpcclient.New(rpcNode, "/websocket")
+	if err != nil {
+		return "", err
+	}
+
+	voteOptionParsed, err := types.VoteOptionFromString(voteOption)
+	if err != nil {
+		return "", err
+	}
+
+	msg := types.NewMsgVote(walletName, proposalID, voteOptionParsed)
+	txBuilder, err := client.BuildTx(context.Background(), walletName, password, []sdk.Msg{msg}, gasPrices)
+	if err != nil {
+		return "", err
+	}
+
+	res, err := client.BroadcastTx(context.Background(), txBuilder)
+	if err != nil {
+		return "", err
+	}
+
+	return res.TxHash, nil
 }
