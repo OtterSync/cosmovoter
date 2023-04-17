@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/OtterSync/cosmovisor/cmd"
+	"github.com/OtterSync/cosmovoter/cmd"
 )
 
 const version = "1.0.0"
